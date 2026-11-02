@@ -1,0 +1,328 @@
+
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<title>NAR OFFICE</title>
+<style>
+*{box-sizing:border-box}
+html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#07111f;color:#eef5ff;font-family:system-ui,Arial}
+#view{position:fixed;inset:0}
+canvas{display:block}
+.top{position:fixed;top:10px;left:10px;right:10px;display:flex;justify-content:space-between;gap:8px;pointer-events:none}
+.brand,.pill{background:#0b1728dc;border:1px solid #29415f;border-radius:14px;padding:9px 12px;backdrop-filter:blur(8px);font-size:13px}
+.brand b{color:#67d5ff}.pill{pointer-events:auto}
+#help{position:fixed;top:58px;left:12px;background:#0b1728d9;border:1px solid #29415f;border-radius:12px;padding:8px 10px;font-size:11px;color:#b9cce2;max-width:230px}
+#controls{position:fixed;bottom:18px;left:18px;width:132px;height:132px;border-radius:50%;background:#15294399;border:1px solid #55718f;touch-action:none}
+#stick{position:absolute;width:52px;height:52px;left:39px;top:39px;border-radius:50%;background:#67d5ffcc;border:2px solid white}
+#actions{position:fixed;right:14px;bottom:20px;display:flex;flex-direction:column;gap:9px}
+button{border:1px solid #4d7197;background:#10243b;color:#fff;border-radius:13px;padding:11px 14px;font-weight:700}
+#panel{display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);width:min(92vw,390px);max-height:78vh;overflow:auto;background:#0b1728f5;border:1px solid #426487;border-radius:18px;padding:16px}
+#panel h2{margin:0 0 5px;font-size:20px;color:#7cddff}
+#panel p{font-size:13px;color:#c3d3e5;line-height:1.45}
+#chatlog{height:145px;overflow:auto;background:#07111f;border-radius:10px;padding:9px;font-size:12px;margin:10px 0}
+#msg{width:100%;padding:12px;border-radius:10px;border:1px solid #49617e;background:#101f33;color:white;margin:7px 0}
+.row{display:flex;gap:8px}.row button{flex:1}
+#toast{position:fixed;bottom:165px;left:50%;transform:translateX(-50%);background:#0b1728ef;border:1px solid #426487;border-radius:12px;padding:9px 13px;font-size:12px;display:none}
+#footer{position:fixed;bottom:7px;left:50%;transform:translateX(-50%);font-size:10px;color:#91a8c3;white-space:nowrap}
+</style>
+</head>
+<body>
+<div id="view"></div>
+<div class="top">
+<div class="brand"><b>NAR</b> OFFICE <span style="color:#8da9c7">• DEMO</span></div>
+<div class="pill" id="status">CEO: Online</div>
+</div>
+<div id="help">Move: use joystick • Tap a staff member to interact • Rotate view by dragging</div>
+<div id="controls"><div id="stick"></div></div>
+<div id="actions">
+<button id="interact">INTERACT</button>
+<button id="reset">RESET VIEW</button>
+</div>
+<div id="toast"></div>
+<div id="panel">
+<h2 id="staffName">AI Employee</h2>
+<div id="staffRole" style="color:#8faac8;font-size:12px"></div>
+<p id="staffDesc"></p>
+<div id="chatlog">Office assistant ready. This is a front-end demo; connect an AI API in the next step for real AI replies.</div>
+<input id="msg" placeholder="Write a task or message...">
+<div class="row">
+<button id="send">SEND</button>
+<button id="close">CLOSE</button>
+</div>
+</div>
+<div id="footer">NAR OFFICE • Prototype v1 • Touch controls</div>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js';
+
+const host=document.getElementById('view');
+const scene=new THREE.Scene();
+scene.background=new THREE.Color(0x07111f);
+scene.fog=new THREE.Fog(0x07111f,18,42);
+
+const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,.1,100);
+camera.position.set(10,11,14);
+camera.lookAt(0,0,0);
+
+const renderer=new THREE.WebGLRenderer({antialias:true});
+renderer.setPixelRatio(Math.min(devicePixelRatio,2));
+renderer.setSize(innerWidth,innerHeight);
+renderer.shadowMap.enabled=true;
+renderer.shadowMap.type=THREE.PCFSoftShadowMap;
+host.appendChild(renderer.domElement);
+
+scene.add(new THREE.HemisphereLight(0xb9ddff,0x172033,2));
+const sun=new THREE.DirectionalLight(0xffffff,2.2);
+sun.position.set(-7,14,8);
+sun.castShadow=true;
+scene.add(sun);
+
+const mat=(c,r=.75)=>new THREE.MeshStandardMaterial({color:c,roughness:r});
+const floorMat=mat(0x24364c);
+const wallMat=mat(0x13263d);
+
+function cube(parent,x,y,z,w,h,d,m){
+const o=new THREE.Mesh(new THREE.BoxGeometry(w,h,d),m);
+o.position.set(x,y,z);
+o.castShadow=true;
+o.receiveShadow=true;
+parent.add(o);
+return o;
+}
+
+cube(scene,0,-.18,0,20,.35,16,floorMat);
+
+// Office walls
+cube(scene,0,2,-8,20,4,.25,wallMat);
+cube(scene,-10,2,0,.25,4,16,wallMat);
+cube(scene,10,2,0,.25,4,16,wallMat);
+
+const grid=new THREE.GridHelper(20,20,0x36516f,0x2b4059);
+grid.position.y=.01;
+scene.add(grid);
+
+function label(text,x,z,color='#8fe5ff'){
+const c=document.createElement('canvas');
+c.width=512;c.height=128;
+const ctx=c.getContext('2d');
+ctx.fillStyle='rgba(5,15,28,.78)';
+ctx.fillRect(0,0,512,128);
+ctx.strokeStyle=color;
+ctx.lineWidth=5;
+ctx.strokeRect(4,4,504,120);
+ctx.fillStyle=color;
+ctx.font='bold 48px Arial';
+ctx.textAlign='center';
+ctx.fillText(text,256,82);
+const t=new THREE.CanvasTexture(c);
+const s=new THREE.Sprite(new THREE.SpriteMaterial({map:t,transparent:true}));
+s.position.set(x,3.5,z);
+s.scale.set(3.4,.85,1);
+scene.add(s);
+}
+
+// Rooms
+cube(scene,-3.1,1.5,-2.2,.12,3,5.2,mat(0x41617e));
+cube(scene,3.1,1.5,-2.2,.12,3,5.2,mat(0x41617e));
+cube(scene,0,1.5,2.5,6.2,3,.12,mat(0x41617e));
+
+label('CEO CABIN',-6,-5);
+label('AI TEAM',0,-5);
+label('MEETING ROOM',6,4);
+label('RECEPTION',0,6);
+
+function desk(x,z,accent=0x2d526f){
+cube(scene,x,.55,z,2,.16,1,mat(accent));
+cube(scene,x,.27,z,.12,.55,.12,mat(0x8296aa));
+cube(scene,x+.8,.27,z,.12,.55,.12,mat(0x8296aa));
+cube(scene,x-.8,.27,z,.12,.55,.12,mat(0x8296aa));
+cube(scene,x,.9,z-.22,.8,.48,.08,mat(0x101b2a));
+cube(scene,x,.94,z-.16,.68,.34,.025,mat(0x1684b7,.3));
+}
+
+function person(x,z,shirt=0x4cc9f0){
+const g=new THREE.Group();
+const body=new THREE.Mesh(new THREE.CylinderGeometry(.28,.34,.85,12),mat(shirt));
+body.position.y=.75;
+g.add(body);
+const head=new THREE.Mesh(new THREE.SphereGeometry(.27,16,12),mat(0xe5b995));
+head.position.y=1.35;
+g.add(head);
+const hair=new THREE.Mesh(new THREE.SphereGeometry(.28,12,8,0,Math.PI*2,0,Math.PI/2),mat(0x202536));
+hair.position.y=1.48;
+g.add(hair);
+g.position.set(x,0,z);
+g.userData.isPerson=true;
+scene.add(g);
+return g;
+}
+
+const staff=[
+{name:'AI Manager',role:'Office Manager',desc:'Plans work and assigns tasks to the right team.',x:0,z:-3.3,color:0x4cc9f0},
+{name:'AI Developer',role:'Website & Coding',desc:'Helps plan websites, write code and debug projects.',x:4,z:-3.3,color:0x72d6a0},
+{name:'AI Marketing',role:'Marketing & Leads',desc:'Creates marketing ideas, outreach drafts and lead research plans.',x:-4,z:1,color:0xf5b95c},
+{name:'AI Accountant',role:'Accounts & Reports',desc:'Organizes income, expenses and payment records. Verify all figures.',x:4,z:1,color:0xc69bff},
+{name:'AI Secretary',role:'Messages & Schedule',desc:'Drafts messages, organizes tasks and prepares appointment notes.',x:-4,z:-3.3,color:0xff8fa3}
+];
+
+const interactables=[];
+staff.forEach(s=>{
+desk(s.x,s.z-.5);
+const p=person(s.x,s.z,s.color);
+p.userData.staff=s;
+interactables.push(p);
+});
+
+desk(-6,-1,0x36516f);
+label('YOUR DESK',-6,-5.9);
+
+const ceo=person(-6,0,0xf2c14e);
+ceo.userData.staff={
+name:'CEO / You',
+role:'Office Owner',
+desc:'Welcome, Boss! Use the joystick to explore your virtual office.'
+};
+interactables.push(ceo);
+
+desk(0,5);desk(2,5);desk(-2,5);
+
+const ray=new THREE.Raycaster();
+const mouse=new THREE.Vector2();
+let selected=null;
+
+function choose(obj){
+if(!obj)return;
+selected=obj.userData.staff;
+document.getElementById('staffName').textContent=selected.name;
+document.getElementById('staffRole').textContent=selected.role;
+document.getElementById('staffDesc').textContent=selected.desc;
+document.getElementById('chatlog').innerHTML='Office: Hello! Tell me what task you want to discuss.<br><br><span style="color:#8ba8c8">Demo mode: real AI connection is not enabled yet.</span>';
+document.getElementById('panel').style.display='block';
+}
+
+renderer.domElement.addEventListener('pointerdown',e=>{
+mouse.x=e.clientX/innerWidth*2-1;
+mouse.y=-(e.clientY/innerHeight)*2+1;
+ray.setFromCamera(mouse,camera);
+const hits=ray.intersectObjects(interactables,true);
+if(hits.length){
+let o=hits[0].object;
+while(o&&!o.userData.staff)o=o.parent;
+if(o)choose(o);
+}
+});
+
+document.getElementById('interact').onclick=()=>{
+if(selected)choose({userData:{staff:selected}});
+else toast('Tap an employee to interact.');
+};
+
+document.getElementById('close').onclick=()=>{
+document.getElementById('panel').style.display='none';
+};
+
+document.getElementById('send').onclick=()=>{
+const inp=document.getElementById('msg');
+const v=inp.value.trim();
+if(!v)return;
+const log=document.getElementById('chatlog');
+log.innerHTML+=`<br><br><b>You:</b> ${escapeHtml(v)}<br><b>${escapeHtml(selected?.name||'Office')}:</b> Message received. This prototype needs a Gemini API connection to perform real AI work.`;
+log.scrollTop=log.scrollHeight;
+inp.value='';
+};
+
+function escapeHtml(s){
+return s.replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+let yaw=.65,zoom=18;
+let player={x:0,z:7};
+let move={x:0,y:0};
+
+const controls=document.getElementById('controls');
+const stick=document.getElementById('stick');
+let active=false;
+
+function setMove(e){
+const r=controls.getBoundingClientRect();
+const cx=r.left+r.width/2,cy=r.top+r.height/2;
+let dx=e.clientX-cx,dy=e.clientY-cy;
+const len=Math.hypot(dx,dy),max=42;
+if(len>max){dx=dx/len*max;dy=dy/len*max}
+stick.style.left=(39+dx)+'px';
+stick.style.top=(39+dy)+'px';
+move.x=dx/max;
+move.y=dy/max;
+}
+
+controls.addEventListener('pointerdown',e=>{
+active=true;
+controls.setPointerCapture(e.pointerId);
+setMove(e);
+});
+controls.addEventListener('pointermove',e=>{
+if(active)setMove(e);
+});
+
+function stop(){
+active=false;
+move={x:0,y:0};
+stick.style.left='39px';
+stick.style.top='39px';
+}
+
+controls.addEventListener('pointerup',stop);
+controls.addEventListener('pointercancel',stop);
+
+let dragging=false,lastX=0;
+renderer.domElement.addEventListener('pointerdown',e=>{
+dragging=true;
+lastX=e.clientX;
+});
+renderer.domElement.addEventListener('pointermove',e=>{
+if(dragging&&e.buttons){
+yaw+=(e.clientX-lastX)*.006;
+lastX=e.clientX;
+}
+});
+renderer.domElement.addEventListener('pointerup',()=>dragging=false);
+
+document.getElementById('reset').onclick=()=>{
+yaw=.65;zoom=18;toast('View reset');
+};
+
+function toast(t){
+const el=document.getElementById('toast');
+el.textContent=t;
+el.style.display='block';
+setTimeout(()=>el.style.display='none',1800);
+}
+
+function animate(){
+requestAnimationFrame(animate);
+const speed=.075;
+player.x+=move.x*speed;
+player.z+=move.y*speed;
+player.x=Math.max(-8,Math.min(8,player.x));
+player.z=Math.max(-6.5,Math.min(7,player.z));
+ceo.position.set(player.x,0,player.z);
+ceo.rotation.y=Math.atan2(move.x,move.y||.001);
+const cx=player.x+Math.sin(yaw)*zoom;
+const cz=player.z+Math.cos(yaw)*zoom;
+camera.position.lerp(new THREE.Vector3(cx,zoom*.62,cz),.08);
+camera.lookAt(player.x,0,player.z);
+renderer.render(scene,camera);
+}
+
+animate();
+
+addEventListener('resize',()=>{
+camera.aspect=innerWidth/innerHeight;
+camera.updateProjectionMatrix();
+renderer.setSize(innerWidth,innerHeight);
+});
+</script>
+</body>
+</html>
